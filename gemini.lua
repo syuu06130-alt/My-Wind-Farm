@@ -1,4 +1,4 @@
--- [[ Rayfield UI統合スクリプト - Signal Spoofer V3 ]]
+-- [[ Rayfield UI統合スクリプト - Physical Force Edition V4 ]]
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 -- サービス
@@ -6,150 +6,195 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 
--- コンフィグ（アイテム特定用）
+-- コンフィグ取得
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Configs = Shared:WaitForChild("Configs")
 local BatteryConfig = require(Configs:WaitForChild("Batteries")).Config
 local WindmillConfig = require(Configs:WaitForChild("Windmills")).Config
 
--- ウィンドウ作成
 local Window = Rayfield:CreateWindow({
-   Name = "Energy Tycoon: Signal Spoofer V3",
-   LoadingTitle = "Turbine/Battery Hack...",
-   LoadingSubtitle = "Multi-Signal Active",
-   ConfigurationSaving = { Enabled = true, FolderName = "EnergyTycoon", FileName = "SpooferV3" },
+   Name = "Energy Tycoon: Physical Multiplier V4",
+   LoadingTitle = "Bypassing Debounce...",
+   LoadingSubtitle = "Physical Teleport Mode",
+   ConfigurationSaving = { Enabled = true, FolderName = "EnergyTycoon", FileName = "PhysicalV4" },
    KeySystem = false
 })
 
 -- グローバル変数
 local _G_Status = {
-    AutoBattery = false,
-    AutoTurbine = false,
-    Multiplier = 5,       -- デフォルト倍率
-    BruteForce = false,   -- 全パーツ接触モード
+    Active = false,
+    Multiplier = 3,       -- 往復回数（倍率）
+    Delay = 0.15,         -- 往復の間隔（秒）
+    ReturnToPos = true,   -- 元の位置に戻るか
+    TargetBatteries = true,
+    TargetTurbines = false,
 }
 
--- ユーティリティ: 接触信号送信関数
-local function SpoofTouch(targetPart)
-    if not targetPart or not LocalPlayer.Character or not LocalPlayer.Character.PrimaryPart then return end
+-- 物理タッチ関数（テレポート往復）
+local function PhysicalTouch(targetPart)
+    local character = LocalPlayer.Character
+    if not character or not character.PrimaryPart or not targetPart then return end
     
-    -- 設定された倍率分ループして信号を送信
+    local originalCFrame = character.PrimaryPart.CFrame
+    
+    -- 設定された倍率分、物理的に往復する
     for i = 1, _G_Status.Multiplier do
-        firetouchinterest(LocalPlayer.Character.PrimaryPart, targetPart, 0) -- Touch Start
-        firetouchinterest(LocalPlayer.Character.PrimaryPart, targetPart, 1) -- Touch End
+        if not _G_Status.Active then break end
+
+        -- 1. 対象の内部へテレポート (Touch Start)
+        character:SetPrimaryPartCFrame(targetPart.CFrame)
+        
+        -- 念のため仮想タッチも送信
+        firetouchinterest(character.PrimaryPart, targetPart, 0) 
+        
+        task.wait(_G_Status.Delay) -- サーバー認識待ち
+        
+        -- 2. 少しずらした位置へ退避 (Touch Endを強制認識させる)
+        character:SetPrimaryPartCFrame(targetPart.CFrame * CFrame.new(0, 10, 0))
+        
+        firetouchinterest(character.PrimaryPart, targetPart, 1)
+        
+        task.wait(_G_Status.Delay)
+    end
+    
+    -- 元の位置に戻す（オプション）
+    if _G_Status.ReturnToPos then
+        character:SetPrimaryPartCFrame(originalCFrame)
     end
 end
 
 -- ===== ⚡ メインタブ =====
-local MainTab = Window:CreateTab("⚡ 信号偽装", 4483362458)
+local MainTab = Window:CreateTab("⚡ 物理増殖回収", 4483362458)
 
-MainTab:CreateSection("信号設定")
+MainTab:CreateSection("倍率設定 (Physical)")
 
--- 倍率スライダー (1〜50回)
 MainTab:CreateSlider({
-   Name = "信号増幅倍率 (Loop Multiplier)",
-   Range = {1, 50},
+   Name = "物理往復回数 (Multiplier)",
+   Range = {1, 10},
    Increment = 1,
-   Suffix = "x Hits",
-   CurrentValue = 5,
+   Suffix = "回/セット",
+   CurrentValue = 3,
    Flag = "Multiplier",
    Callback = function(Value)
       _G_Status.Multiplier = Value
    end,
 })
 
-MainTab:CreateToggle({
-   Name = "精密接触モード (Brute Force)",
-   CurrentValue = false,
-   Flag = "BruteForce",
+MainTab:CreateSlider({
+   Name = "通信間隔 (Delay)",
+   Range = {0.05, 0.5},
+   Increment = 0.01,
+   Suffix = "秒",
+   CurrentValue = 0.15,
+   Flag = "Delay",
    Callback = function(Value)
-      _G_Status.BruteForce = Value
-      -- ONにすると、PrimaryPartだけでなくモデル内の全パーツに接触を試みます
-      -- (重くなりますが、当たり判定の漏れがなくなります)
+      -- 早すぎるとサーバーが認識しないため、0.1〜0.2推奨
+      _G_Status.Delay = Value
    end,
 })
 
-MainTab:CreateSection("自動回収ターゲット")
+MainTab:CreateSection("実行制御")
 
--- バッテリー回収
 MainTab:CreateToggle({
-   Name = "バッテリー自動回収 (Battery)",
-   CurrentValue = false,
-   Flag = "AutoBattery",
+   Name = "バッテリー回収 (Batteries)",
+   CurrentValue = true,
+   Flag = "TargetBatteries",
    Callback = function(Value)
-      _G_Status.AutoBattery = Value
+      _G_Status.TargetBatteries = Value
    end,
 })
 
--- 発電機回収 (新規追加)
 MainTab:CreateToggle({
-   Name = "発電機/タービン自動回収 (Turbine)",
+   Name = "発電機回収 (Turbines)",
    CurrentValue = false,
-   Flag = "AutoTurbine",
+   Flag = "TargetTurbines",
    Callback = function(Value)
-      _G_Status.AutoTurbine = Value
+      _G_Status.TargetTurbines = Value
    end,
 })
 
--- ===== 🚀 メインループ処理 =====
-spawn(function()
-    while true do
-        wait(0.1) -- ループ速度 (早すぎるとクラッシュするため0.1秒)
-        
-        if _G_Status.AutoBattery or _G_Status.AutoTurbine then
-            pcall(function()
-                -- Workspace内の自分の所有物を検索
-                for _, item in pairs(workspace:GetDescendants()) do
-                    if item:IsA("Model") and item:GetAttribute("Owner") == LocalPlayer.Name then
-                        
+MainTab:CreateToggle({
+   Name = "稼働開始 (Start Loop)",
+   CurrentValue = false,
+   Flag = "Active",
+   Callback = function(Value)
+      _G_Status.Active = Value
+      
+      if Value then
+         spawn(function()
+            while _G_Status.Active do
+               pcall(function()
+                  local targets = {}
+                  
+                  -- ターゲット収集
+                  for _, item in pairs(workspace:GetDescendants()) do
+                     if item:IsA("Model") and item:GetAttribute("Owner") == LocalPlayer.Name then
                         local ItemName = item:GetAttribute("Item")
-                        local isTarget = false
-
-                        -- ターゲット判定
-                        if _G_Status.AutoBattery and BatteryConfig[ItemName] then
-                            -- バッテリーかつ中身がある場合
-                            local filled = item:GetAttribute("Filled")
-                            if filled and filled > 0 then
-                                isTarget = true
-                            end
-                        elseif _G_Status.AutoTurbine and WindmillConfig[ItemName] then
-                            -- 発電機の場合 (常に試行)
-                            isTarget = true
-                        end
-
-                        -- 実行処理
-                        if isTarget then
-                            if _G_Status.BruteForce then
-                                -- 精密モード: 中にあるBasePartすべてにタッチ
-                                for _, part in pairs(item:GetChildren()) do
-                                    if part:IsA("BasePart") then
-                                        SpoofTouch(part)
-                                    end
-                                end
-                            else
-                                -- 通常モード: PrimaryPartのみタッチ
-                                if item.PrimaryPart then
-                                    SpoofTouch(item.PrimaryPart)
-                                end
-                            end
-                        end
                         
-                    end
-                end
-            end)
-        end
-    end
-end)
+                        -- バッテリー判定
+                        if _G_Status.TargetBatteries and BatteryConfig[ItemName] then
+                           local filled = item:GetAttribute("Filled")
+                           -- 0より多ければ対象
+                           if filled and filled > 0 and item.PrimaryPart then
+                              table.insert(targets, item.PrimaryPart)
+                           end
+                        
+                        -- 発電機判定
+                        elseif _G_Status.TargetTurbines and WindmillConfig[ItemName] then
+                           if item.PrimaryPart then
+                              table.insert(targets, item.PrimaryPart)
+                           end
+                        end
+                     end
+                  end
 
--- ===== ⚙️ その他 =====
-local MiscTab = Window:CreateTab("⚙️ 設定", 4483362458)
-
-MiscTab:CreateButton({
-   Name = "UIを閉じる",
-   Callback = function()
-      Rayfield:Destroy()
+                  -- 収集したターゲットに対して物理攻撃を実行
+                  for _, target in pairs(targets) do
+                     if not _G_Status.Active then break end
+                     PhysicalTouch(target)
+                     task.wait(0.1) -- 次のアイテムへの移動待ち
+                  end
+                  
+               end)
+               task.wait(1) -- 全アイテム巡回後の休憩
+            end
+         end)
+      end
    end,
 })
+
+-- ===== 📡 レコーダー (上級者向け) =====
+local AdvTab = Window:CreateTab("📡 信号解析", 4483362458)
+
+AdvTab:CreateLabel("Remote Eventが見つからない場合の解析用")
+
+AdvTab:CreateButton({
+   Name = "F9コンソールにRemoteログを表示",
+   Callback = function()
+       -- RemoteSpyの簡易版
+       local meta = getrawmetatable(game)
+       local old = meta.__namecall
+       setreadonly(meta, false)
+       
+       meta.__namecall = newcclosure(function(self, ...)
+           local method = getnamecallmethod()
+           local args = {...}
+           
+           if method == "FireServer" or method == "InvokeServer" then
+               print("Remote Detected:", self.Name, "Args:", unpack(args))
+           end
+           
+           return old(self, ...)
+       end)
+       
+       Rayfield:Notify({Title = "Logger Active", Content = "F9キーを押してコンソールを確認し、\n手動で回収した時のログを見てください。", Duration = 5})
+   end,
+})
+
+-- ===== ⚙️ 設定 =====
+local MiscTab = Window:CreateTab("⚙️ 設定", 4483362458)
+MiscTab:CreateButton({ Name = "UIを閉じる", Callback = function() Rayfield:Destroy() end })
 
 Rayfield:LoadConfiguration()
