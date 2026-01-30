@@ -1,4 +1,4 @@
--- [[ Rayfield UI統合スクリプト - Battery Increase Update ]]
+-- [[ Rayfield UI統合スクリプト - Multiplier Update ]]
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 -- サービス & 基本設定
@@ -6,65 +6,47 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
-
--- フォルダ構造の特定 (提供コードに基づく)
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Functions = Shared:WaitForChild("Functions")
-local Events = Shared:WaitForChild("Events")
-local Configs = Shared:WaitForChild("Configs")
-
--- 設定ファイルの読み込み (バッテリーリスト取得用)
-local BatteriesConfig = require(Configs:WaitForChild("Batteries")).Config
-local BatteryNames = {}
-for name, _ in pairs(BatteriesConfig) do
-    table.insert(BatteryNames, name)
-end
-table.sort(BatteryNames) -- 名前順にソート
 
 local Window = Rayfield:CreateWindow({
-   Name = "Energy Tycoon: Ultra Hub v2",
-   LoadingTitle = "システム更新中...",
-   LoadingSubtitle = "Battery Increaser Added",
-   ConfigurationSaving = { Enabled = true, FolderName = "EnergyTycoon", FileName = "ConfigV2" },
+   Name = "Energy Tycoon: Collection Multiplier",
+   LoadingTitle = "Signal Forgery Init...",
+   LoadingSubtitle = "Multiplier: Active",
+   ConfigurationSaving = { Enabled = true, FolderName = "EnergyTycoon", FileName = "MultiConfig" },
    KeySystem = false
 })
 
 -- グローバル状態
 local _G_Status = {
     AutoCollect = false,
+    CollectMultiplier = 1, -- デフォルト倍率
     AutoTutorial = false,
-    AutoBuyBattery = false,
-    SelectedBattery = "Scrap Battery", -- デフォルト
-    AutoRebirth = false,
 }
 
 -- ===== 🔨 メイン機能タブ =====
-local MainTab = Window:CreateTab("🔨 メイン機能", 4483362458)
+local MainTab = Window:CreateTab("⚡ 回収強化", 4483362458)
 
-MainTab:CreateSection("自動チュートリアル")
-MainTab:CreateToggle({
-   Name = "自動チュートリアル完了 (一括)",
-   CurrentValue = false,
-   Flag = "AutoTutorial",
+MainTab:CreateSection("信号偽装設定")
+
+-- 倍率設定スライダー (2x - 10x)
+local MultiplierSlider = MainTab:CreateSlider({
+   Name = "回収信号の増幅倍率 (Signal Multiplier)",
+   Range = {1, 10},
+   Increment = 1,
+   Suffix = "倍",
+   CurrentValue = 1,
+   Flag = "CollectMultiplier",
    Callback = function(Value)
-      _G_Status.AutoTutorial = Value
-      if Value then
-         spawn(function()
-            while _G_Status.AutoTutorial do
-                pcall(function()
-                    -- 提供コードにあったチュートリアル進行リモート
-                    Functions.updateTutorialStep:InvokeServer(6)
-                end)
-                wait(2)
-            end
-         end)
-      end
+      _G_Status.CollectMultiplier = Value
    end,
 })
 
-MainTab:CreateSection("エネルギー回収")
-MainTab:CreateToggle({
-   Name = "バッテリー自動回収 (UUID Touch)",
+MainTab:CreateSection("実行")
+
+-- 強化版自動回収トグル
+local CollectToggle = MainTab:CreateToggle({
+   Name = "多重信号自動回収 (Multi-Process)",
    CurrentValue = false,
    Flag = "AutoCollect",
    Callback = function(Value)
@@ -73,121 +55,62 @@ MainTab:CreateToggle({
          spawn(function()
             while _G_Status.AutoCollect do
                pcall(function()
-                  -- Workspace内の自分のプロットにあるバッテリーを探す
+                  local character = LocalPlayer.Character
+                  if not character or not character.PrimaryPart then return end
+
+                  -- Workspace内の自分のプロットにあるバッテリーを走査
                   for _, item in pairs(workspace:GetDescendants()) do
                      if item:IsA("Model") and item:GetAttribute("Owner") == LocalPlayer.Name then
+                        -- バッテリー判定 (Filled属性があるもの)
                         local filled = item:GetAttribute("Filled")
-                        -- 満タンじゃなくても少しでも入っていれば回収（効率重視）
-                        if filled and filled > 0 then
-                            if item.PrimaryPart then
-                                -- プレイヤーとバッテリーを接触させる判定を送信
-                                firetouchinterest(LocalPlayer.Character.PrimaryPart, item.PrimaryPart, 0)
-                                task.wait()
-                                firetouchinterest(LocalPlayer.Character.PrimaryPart, item.PrimaryPart, 1)
-                            end
+                        
+                        -- 少しでも溜まっていれば実行
+                        if filled and filled > 0 and item.PrimaryPart then
+                           
+                           -- 【ここが変更点】設定された倍率分だけ信号を連打・偽装する
+                           -- サーバーのDebounce(待機時間)の隙間を縫って複数のパケットを送信するイメージ
+                           for i = 1, _G_Status.CollectMultiplier do
+                              -- 0 (Touch開始)
+                              firetouchinterest(character.PrimaryPart, item.PrimaryPart, 0)
+                              -- わずかな遅延を入れることで信号かぶりを防ぎつつ連打（不要なら削除可）
+                              -- task.wait() 
+                              -- 1 (Touch終了)
+                              firetouchinterest(character.PrimaryPart, item.PrimaryPart, 1)
+                           end
+                           
                         end
                      end
                   end
                end)
-               wait(0.1)
+               -- ループ速度自体も高速化
+               task.wait(0.05)
             end
          end)
       end
    end,
 })
 
--- ▼▼▼ 追加機能: バッテリー増設 ▼▼▼
-MainTab:CreateSection("バッテリー増設 (New!)")
+-- ===== 🛠 その他タブ =====
+local MiscTab = Window:CreateTab("🛠 その他", 4483362458)
 
-MainTab:CreateDropdown({
-   Name = "購入するバッテリーを選択",
-   Options = BatteryNames,
-   CurrentOption = {"Scrap Battery"},
-   MultipleOptions = false,
-   Flag = "BatterySelect",
-   Callback = function(Option)
-      _G_Status.SelectedBattery = Option[1]
-   end,
-})
-
-MainTab:CreateToggle({
-   Name = "自動購入・配置 (Auto Buy & Place)",
+MiscTab:CreateToggle({
+   Name = "自動チュートリアル完了",
    CurrentValue = false,
-   Flag = "AutoBuyBattery",
+   Flag = "AutoTutorial",
    Callback = function(Value)
-      _G_Status.AutoBuyBattery = Value
+      _G_Status.AutoTutorial = Value
       if Value then
          spawn(function()
-            while _G_Status.AutoBuyBattery do
+            while _G_Status.AutoTutorial do
                pcall(function()
-                  -- 購入/配置のリモートを推測して実行
-                  -- 注: 提供コードには配置の具体的なリモート名がなかったため、一般的な名称で試行します
-                  -- 1. Functionsフォルダ内の配置リクエストを試す
-                  if Functions:FindFirstChild("PlaceItem") then
-                      Functions.PlaceItem:InvokeServer(_G_Status.SelectedBattery, Vector3.new(0,0,0), 0)
-                  elseif Functions:FindFirstChild("BuyItem") then
-                      Functions.BuyItem:InvokeServer(_G_Status.SelectedBattery)
-                  elseif Functions:FindFirstChild("RequestPlace") then
-                      Functions.RequestPlace:InvokeServer(_G_Status.SelectedBattery)
-                  end
-                  
-                  -- 2. Eventsフォルダ内の配置イベントを試す
-                  if Events:FindFirstChild("PlaceItem") then
-                      Events.PlaceItem:FireServer(_G_Status.SelectedBattery)
-                  end
+                  Functions.updateTutorialStep:InvokeServer(6)
                end)
-               wait(0.5) -- 購入間隔
+               wait(2)
             end
          end)
       end
    end,
 })
--- ▲▲▲ 追加機能終了 ▲▲▲
-
--- ===== 💰 経済・転生タブ =====
-local EcoTab = Window:CreateTab("💰 経済/転生", 4483362458)
-
-local CashLabel = EcoTab:CreateLabel("ステータス: 待機中...")
-
-EcoTab:CreateToggle({
-   Name = "自動転生 (Rebirth)",
-   CurrentValue = false,
-   Callback = function(Value)
-      _G_Status.AutoRebirth = Value
-      if Value then
-         spawn(function()
-            while _G_Status.AutoRebirth do
-               pcall(function()
-                   if Functions:FindFirstChild("RebirthRequest") then
-                       Functions.RebirthRequest:InvokeServer()
-                   elseif Functions:FindFirstChild("RequestRebirth") then
-                       Functions.RequestRebirth:InvokeServer()
-                   end
-               end)
-               wait(5)
-            end
-         end)
-      end
-   end,
-})
-
--- ===== 📊 リーダーボード情報 =====
-local StatsTab = Window:CreateTab("📊 ランキング", 4483362458)
-
-StatsTab:CreateButton({
-   Name = "リーダーボード情報取得",
-   Callback = function()
-      pcall(function()
-          local data = Functions.getLeaderboardPlayers:InvokeServer()
-          if data then
-             Rayfield:Notify({Title = "成功", Content = "データを更新しました", Duration = 2})
-          end
-      end)
-   end,
-})
-
--- ===== ⚙️ 設定 =====
-local MiscTab = Window:CreateTab("⚙️ 設定", 4483362458)
 
 MiscTab:CreateButton({
    Name = "UIを閉じる",
@@ -197,3 +120,10 @@ MiscTab:CreateButton({
 })
 
 Rayfield:LoadConfiguration()
+
+Rayfield:Notify({
+   Title = "倍率モード適用完了",
+   Content = "回収信号の多重送信が可能になりました。",
+   Duration = 3,
+   Image = 4483362458,
+})
