@@ -1,4 +1,4 @@
--- [[ Rayfield UI統合スクリプト - Physical Force Edition V4 ]]
+-- [[ Rayfield UI統合スクリプト - V5 Stability Fix ]]
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 -- サービス
@@ -6,117 +6,107 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
-local VirtualInputManager = game:GetService("VirtualInputManager")
+local TweenService = game:GetService("TweenService")
 
--- コンフィグ取得
-local Shared = ReplicatedStorage:WaitForChild("Shared")
-local Configs = Shared:WaitForChild("Configs")
-local BatteryConfig = require(Configs:WaitForChild("Batteries")).Config
-local WindmillConfig = require(Configs:WaitForChild("Windmills")).Config
+-- フォルダ・コンフィグ確認
+local Shared = ReplicatedStorage:WaitForChild("Shared", 10)
+if not Shared then return warn("Critical Error: Shared folder not found.") end
+local Configs = Shared:WaitForChild("Configs", 10)
+
+-- コンフィグ読み込み（エラーハンドリング付き）
+local BatteryConfig = {}
+local WindmillConfig = {}
+
+pcall(function()
+    BatteryConfig = require(Configs:WaitForChild("Batteries")).Config
+end)
+pcall(function()
+    WindmillConfig = require(Configs:WaitForChild("Windmills")).Config
+end)
 
 local Window = Rayfield:CreateWindow({
-   Name = "Energy Tycoon: Physical Multiplier V4",
-   LoadingTitle = "Bypassing Debounce...",
-   LoadingSubtitle = "Physical Teleport Mode",
-   ConfigurationSaving = { Enabled = true, FolderName = "EnergyTycoon", FileName = "PhysicalV4" },
+   Name = "Energy Tycoon: Fix V5",
+   LoadingTitle = "Stabilizing Connection...",
+   LoadingSubtitle = "Auto Collect Repair",
+   ConfigurationSaving = { Enabled = true, FolderName = "EnergyTycoon", FileName = "FixV5" },
    KeySystem = false
 })
 
 -- グローバル変数
 local _G_Status = {
     Active = false,
-    Multiplier = 3,       -- 往復回数（倍率）
-    Delay = 0.15,         -- 往復の間隔（秒）
-    ReturnToPos = true,   -- 元の位置に戻るか
-    TargetBatteries = true,
-    TargetTurbines = false,
+    Method = "Teleport", -- "Teleport" (物理) or "Signal" (信号)
+    DebugMode = true,
 }
 
--- 物理タッチ関数（テレポート往復）
-local function PhysicalTouch(targetPart)
-    local character = LocalPlayer.Character
-    if not character or not character.PrimaryPart or not targetPart then return end
-    
-    local originalCFrame = character.PrimaryPart.CFrame
-    
-    -- 設定された倍率分、物理的に往復する
-    for i = 1, _G_Status.Multiplier do
-        if not _G_Status.Active then break end
-
-        -- 1. 対象の内部へテレポート (Touch Start)
-        character:SetPrimaryPartCFrame(targetPart.CFrame)
-        
-        -- 念のため仮想タッチも送信
-        firetouchinterest(character.PrimaryPart, targetPart, 0) 
-        
-        task.wait(_G_Status.Delay) -- サーバー認識待ち
-        
-        -- 2. 少しずらした位置へ退避 (Touch Endを強制認識させる)
-        character:SetPrimaryPartCFrame(targetPart.CFrame * CFrame.new(0, 10, 0))
-        
-        firetouchinterest(character.PrimaryPart, targetPart, 1)
-        
-        task.wait(_G_Status.Delay)
-    end
-    
-    -- 元の位置に戻す（オプション）
-    if _G_Status.ReturnToPos then
-        character:SetPrimaryPartCFrame(originalCFrame)
+-- ログ出力関数
+local function DebugLog(msg)
+    if _G_Status.DebugMode then
+        print("[AutoFarm Debug]: " .. msg)
     end
 end
 
--- ===== ⚡ メインタブ =====
-local MainTab = Window:CreateTab("⚡ 物理増殖回収", 4483362458)
+-- 物理移動関数（Tweenを使用せず直接CFrame設定 + 待機）
+local function TeleportCollect(targetPart)
+    local char = LocalPlayer.Character
+    if not char or not char.PrimaryPart then return end
+    
+    local originalPos = char.PrimaryPart.CFrame
+    
+    -- ターゲットへ移動
+    char:SetPrimaryPartCFrame(targetPart.CFrame)
+    DebugLog("Teleported to: " .. targetPart.Parent.Name)
+    
+    -- サーバー認識待ち（重要）
+    task.wait(0.15) 
+    
+    -- 信号も念のため送信
+    if firetouchinterest then
+        firetouchinterest(char.PrimaryPart, targetPart, 0)
+        firetouchinterest(char.PrimaryPart, targetPart, 1)
+    end
+    
+    -- 元の位置に戻る（オプション：視点が激しく動くのが嫌ならコメントアウト）
+    -- char:SetPrimaryPartCFrame(originalPos)
+end
 
-MainTab:CreateSection("倍率設定 (Physical)")
+-- 信号のみ送信関数
+local function SignalCollect(targetPart)
+    local char = LocalPlayer.Character
+    if not char or not char.PrimaryPart then return end
+    
+    if firetouchinterest then
+        firetouchinterest(char.PrimaryPart, targetPart, 0)
+        firetouchinterest(char.PrimaryPart, targetPart, 1)
+        DebugLog("Signal sent to: " .. targetPart.Parent.Name)
+    else
+        DebugLog("Error: firetouchinterest not supported on this executor.")
+    end
+end
 
-MainTab:CreateSlider({
-   Name = "物理往復回数 (Multiplier)",
-   Range = {1, 10},
-   Increment = 1,
-   Suffix = "回/セット",
-   CurrentValue = 3,
-   Flag = "Multiplier",
-   Callback = function(Value)
-      _G_Status.Multiplier = Value
+-- ===== 🔨 メイン機能 =====
+local MainTab = Window:CreateTab("🔨 修復版機能", 4483362458)
+
+MainTab:CreateSection("状態確認")
+
+MainTab:CreateLabel("現在、増殖機能は無効化しています。")
+MainTab:CreateLabel("まずは基本回収が動くか確認してください。")
+
+MainTab:CreateSection("回収設定")
+
+MainTab:CreateDropdown({
+   Name = "回収方法 (Method)",
+   Options = {"Teleport", "Signal"},
+   CurrentOption = {"Teleport"},
+   MultipleOptions = false,
+   Flag = "Method",
+   Callback = function(Option)
+      _G_Status.Method = Option[1]
    end,
 })
-
-MainTab:CreateSlider({
-   Name = "通信間隔 (Delay)",
-   Range = {0.05, 0.5},
-   Increment = 0.01,
-   Suffix = "秒",
-   CurrentValue = 0.15,
-   Flag = "Delay",
-   Callback = function(Value)
-      -- 早すぎるとサーバーが認識しないため、0.1〜0.2推奨
-      _G_Status.Delay = Value
-   end,
-})
-
-MainTab:CreateSection("実行制御")
 
 MainTab:CreateToggle({
-   Name = "バッテリー回収 (Batteries)",
-   CurrentValue = true,
-   Flag = "TargetBatteries",
-   Callback = function(Value)
-      _G_Status.TargetBatteries = Value
-   end,
-})
-
-MainTab:CreateToggle({
-   Name = "発電機回収 (Turbines)",
-   CurrentValue = false,
-   Flag = "TargetTurbines",
-   Callback = function(Value)
-      _G_Status.TargetTurbines = Value
-   end,
-})
-
-MainTab:CreateToggle({
-   Name = "稼働開始 (Start Loop)",
+   Name = "自動回収開始 (Auto Collect)",
    CurrentValue = false,
    Flag = "Active",
    Callback = function(Value)
@@ -124,72 +114,63 @@ MainTab:CreateToggle({
       
       if Value then
          spawn(function()
+            DebugLog("Started Auto Collect Loop")
             while _G_Status.Active do
                pcall(function()
-                  local targets = {}
+                  local foundCount = 0
                   
-                  -- ターゲット収集
+                  -- Workspace走査
                   for _, item in pairs(workspace:GetDescendants()) do
+                     if not _G_Status.Active then break end
+                     
+                     -- モデルかつオーナーが自分
                      if item:IsA("Model") and item:GetAttribute("Owner") == LocalPlayer.Name then
-                        local ItemName = item:GetAttribute("Item")
                         
-                        -- バッテリー判定
-                        if _G_Status.TargetBatteries and BatteryConfig[ItemName] then
-                           local filled = item:GetAttribute("Filled")
-                           -- 0より多ければ対象
-                           if filled and filled > 0 and item.PrimaryPart then
-                              table.insert(targets, item.PrimaryPart)
-                           end
+                        local itemName = item:GetAttribute("Item")
+                        local isTarget = false
                         
-                        -- 発電機判定
-                        elseif _G_Status.TargetTurbines and WindmillConfig[ItemName] then
-                           if item.PrimaryPart then
-                              table.insert(targets, item.PrimaryPart)
-                           end
+                        -- アイテム判定
+                        if BatteryConfig[itemName] then
+                             local filled = item:GetAttribute("Filled")
+                             if filled and filled > 0 then isTarget = true end
+                        elseif WindmillConfig[itemName] then
+                             isTarget = true
+                        end
+                        
+                        -- 実行
+                        if isTarget and item.PrimaryPart then
+                            foundCount = foundCount + 1
+                            
+                            if _G_Status.Method == "Teleport" then
+                                TeleportCollect(item.PrimaryPart)
+                            else
+                                SignalCollect(item.PrimaryPart)
+                            end
+                            
+                            -- 短い待機（早すぎるとサーバーに弾かれるため）
+                            task.wait(0.1)
                         end
                      end
                   end
-
-                  -- 収集したターゲットに対して物理攻撃を実行
-                  for _, target in pairs(targets) do
-                     if not _G_Status.Active then break end
-                     PhysicalTouch(target)
-                     task.wait(0.1) -- 次のアイテムへの移動待ち
-                  end
                   
+                  if foundCount == 0 then
+                      -- DebugLog("No targets found. Check owner attribute or item names.")
+                  end
                end)
-               task.wait(1) -- 全アイテム巡回後の休憩
+               task.wait(0.5) -- ループ全体の休憩
             end
+            DebugLog("Stopped Auto Collect Loop")
          end)
       end
    end,
 })
 
--- ===== 📡 レコーダー (上級者向け) =====
-local AdvTab = Window:CreateTab("📡 信号解析", 4483362458)
+MainTab:CreateSection("デバッグ")
 
-AdvTab:CreateLabel("Remote Eventが見つからない場合の解析用")
-
-AdvTab:CreateButton({
-   Name = "F9コンソールにRemoteログを表示",
+MainTab:CreateButton({
+   Name = "F9コンソールでログを確認",
    Callback = function()
-       -- RemoteSpyの簡易版
-       local meta = getrawmetatable(game)
-       local old = meta.__namecall
-       setreadonly(meta, false)
-       
-       meta.__namecall = newcclosure(function(self, ...)
-           local method = getnamecallmethod()
-           local args = {...}
-           
-           if method == "FireServer" or method == "InvokeServer" then
-               print("Remote Detected:", self.Name, "Args:", unpack(args))
-           end
-           
-           return old(self, ...)
-       end)
-       
-       Rayfield:Notify({Title = "Logger Active", Content = "F9キーを押してコンソールを確認し、\n手動で回収した時のログを見てください。", Duration = 5})
+       Rayfield:Notify({Title="確認", Content="F9キーを押してログを見てください", Duration=3})
    end,
 })
 
