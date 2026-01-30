@@ -1,116 +1,149 @@
--- [[ Rayfield UI統合スクリプト - Multiplier Update ]]
+-- [[ Rayfield UI統合スクリプト - Signal Spoofer V3 ]]
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
--- サービス & 基本設定
+-- サービス
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
-local Shared = ReplicatedStorage:WaitForChild("Shared")
-local Functions = Shared:WaitForChild("Functions")
 
+-- コンフィグ（アイテム特定用）
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Configs = Shared:WaitForChild("Configs")
+local BatteryConfig = require(Configs:WaitForChild("Batteries")).Config
+local WindmillConfig = require(Configs:WaitForChild("Windmills")).Config
+
+-- ウィンドウ作成
 local Window = Rayfield:CreateWindow({
-   Name = "Energy Tycoon: Collection Multiplier",
-   LoadingTitle = "Signal Forgery Init...",
-   LoadingSubtitle = "Multiplier: Active",
-   ConfigurationSaving = { Enabled = true, FolderName = "EnergyTycoon", FileName = "MultiConfig" },
+   Name = "Energy Tycoon: Signal Spoofer V3",
+   LoadingTitle = "Turbine/Battery Hack...",
+   LoadingSubtitle = "Multi-Signal Active",
+   ConfigurationSaving = { Enabled = true, FolderName = "EnergyTycoon", FileName = "SpooferV3" },
    KeySystem = false
 })
 
--- グローバル状態
+-- グローバル変数
 local _G_Status = {
-    AutoCollect = false,
-    CollectMultiplier = 1, -- デフォルト倍率
-    AutoTutorial = false,
+    AutoBattery = false,
+    AutoTurbine = false,
+    Multiplier = 5,       -- デフォルト倍率
+    BruteForce = false,   -- 全パーツ接触モード
 }
 
--- ===== 🔨 メイン機能タブ =====
-local MainTab = Window:CreateTab("⚡ 回収強化", 4483362458)
+-- ユーティリティ: 接触信号送信関数
+local function SpoofTouch(targetPart)
+    if not targetPart or not LocalPlayer.Character or not LocalPlayer.Character.PrimaryPart then return end
+    
+    -- 設定された倍率分ループして信号を送信
+    for i = 1, _G_Status.Multiplier do
+        firetouchinterest(LocalPlayer.Character.PrimaryPart, targetPart, 0) -- Touch Start
+        firetouchinterest(LocalPlayer.Character.PrimaryPart, targetPart, 1) -- Touch End
+    end
+end
 
-MainTab:CreateSection("信号偽装設定")
+-- ===== ⚡ メインタブ =====
+local MainTab = Window:CreateTab("⚡ 信号偽装", 4483362458)
 
--- 倍率設定スライダー (2x - 10x)
-local MultiplierSlider = MainTab:CreateSlider({
-   Name = "回収信号の増幅倍率 (Signal Multiplier)",
-   Range = {1, 10},
+MainTab:CreateSection("信号設定")
+
+-- 倍率スライダー (1〜50回)
+MainTab:CreateSlider({
+   Name = "信号増幅倍率 (Loop Multiplier)",
+   Range = {1, 50},
    Increment = 1,
-   Suffix = "倍",
-   CurrentValue = 1,
-   Flag = "CollectMultiplier",
+   Suffix = "x Hits",
+   CurrentValue = 5,
+   Flag = "Multiplier",
    Callback = function(Value)
-      _G_Status.CollectMultiplier = Value
+      _G_Status.Multiplier = Value
    end,
 })
 
-MainTab:CreateSection("実行")
-
--- 強化版自動回収トグル
-local CollectToggle = MainTab:CreateToggle({
-   Name = "多重信号自動回収 (Multi-Process)",
+MainTab:CreateToggle({
+   Name = "精密接触モード (Brute Force)",
    CurrentValue = false,
-   Flag = "AutoCollect",
+   Flag = "BruteForce",
    Callback = function(Value)
-      _G_Status.AutoCollect = Value
-      if Value then
-         spawn(function()
-            while _G_Status.AutoCollect do
-               pcall(function()
-                  local character = LocalPlayer.Character
-                  if not character or not character.PrimaryPart then return end
+      _G_Status.BruteForce = Value
+      -- ONにすると、PrimaryPartだけでなくモデル内の全パーツに接触を試みます
+      -- (重くなりますが、当たり判定の漏れがなくなります)
+   end,
+})
 
-                  -- Workspace内の自分のプロットにあるバッテリーを走査
-                  for _, item in pairs(workspace:GetDescendants()) do
-                     if item:IsA("Model") and item:GetAttribute("Owner") == LocalPlayer.Name then
-                        -- バッテリー判定 (Filled属性があるもの)
-                        local filled = item:GetAttribute("Filled")
+MainTab:CreateSection("自動回収ターゲット")
+
+-- バッテリー回収
+MainTab:CreateToggle({
+   Name = "バッテリー自動回収 (Battery)",
+   CurrentValue = false,
+   Flag = "AutoBattery",
+   Callback = function(Value)
+      _G_Status.AutoBattery = Value
+   end,
+})
+
+-- 発電機回収 (新規追加)
+MainTab:CreateToggle({
+   Name = "発電機/タービン自動回収 (Turbine)",
+   CurrentValue = false,
+   Flag = "AutoTurbine",
+   Callback = function(Value)
+      _G_Status.AutoTurbine = Value
+   end,
+})
+
+-- ===== 🚀 メインループ処理 =====
+spawn(function()
+    while true do
+        wait(0.1) -- ループ速度 (早すぎるとクラッシュするため0.1秒)
+        
+        if _G_Status.AutoBattery or _G_Status.AutoTurbine then
+            pcall(function()
+                -- Workspace内の自分の所有物を検索
+                for _, item in pairs(workspace:GetDescendants()) do
+                    if item:IsA("Model") and item:GetAttribute("Owner") == LocalPlayer.Name then
                         
-                        -- 少しでも溜まっていれば実行
-                        if filled and filled > 0 and item.PrimaryPart then
-                           
-                           -- 【ここが変更点】設定された倍率分だけ信号を連打・偽装する
-                           -- サーバーのDebounce(待機時間)の隙間を縫って複数のパケットを送信するイメージ
-                           for i = 1, _G_Status.CollectMultiplier do
-                              -- 0 (Touch開始)
-                              firetouchinterest(character.PrimaryPart, item.PrimaryPart, 0)
-                              -- わずかな遅延を入れることで信号かぶりを防ぎつつ連打（不要なら削除可）
-                              -- task.wait() 
-                              -- 1 (Touch終了)
-                              firetouchinterest(character.PrimaryPart, item.PrimaryPart, 1)
-                           end
-                           
+                        local ItemName = item:GetAttribute("Item")
+                        local isTarget = false
+
+                        -- ターゲット判定
+                        if _G_Status.AutoBattery and BatteryConfig[ItemName] then
+                            -- バッテリーかつ中身がある場合
+                            local filled = item:GetAttribute("Filled")
+                            if filled and filled > 0 then
+                                isTarget = true
+                            end
+                        elseif _G_Status.AutoTurbine and WindmillConfig[ItemName] then
+                            -- 発電機の場合 (常に試行)
+                            isTarget = true
                         end
-                     end
-                  end
-               end)
-               -- ループ速度自体も高速化
-               task.wait(0.05)
-            end
-         end)
-      end
-   end,
-})
 
--- ===== 🛠 その他タブ =====
-local MiscTab = Window:CreateTab("🛠 その他", 4483362458)
+                        -- 実行処理
+                        if isTarget then
+                            if _G_Status.BruteForce then
+                                -- 精密モード: 中にあるBasePartすべてにタッチ
+                                for _, part in pairs(item:GetChildren()) do
+                                    if part:IsA("BasePart") then
+                                        SpoofTouch(part)
+                                    end
+                                end
+                            else
+                                -- 通常モード: PrimaryPartのみタッチ
+                                if item.PrimaryPart then
+                                    SpoofTouch(item.PrimaryPart)
+                                end
+                            end
+                        end
+                        
+                    end
+                end
+            end)
+        end
+    end
+end)
 
-MiscTab:CreateToggle({
-   Name = "自動チュートリアル完了",
-   CurrentValue = false,
-   Flag = "AutoTutorial",
-   Callback = function(Value)
-      _G_Status.AutoTutorial = Value
-      if Value then
-         spawn(function()
-            while _G_Status.AutoTutorial do
-               pcall(function()
-                  Functions.updateTutorialStep:InvokeServer(6)
-               end)
-               wait(2)
-            end
-         end)
-      end
-   end,
-})
+-- ===== ⚙️ その他 =====
+local MiscTab = Window:CreateTab("⚙️ 設定", 4483362458)
 
 MiscTab:CreateButton({
    Name = "UIを閉じる",
@@ -120,10 +153,3 @@ MiscTab:CreateButton({
 })
 
 Rayfield:LoadConfiguration()
-
-Rayfield:Notify({
-   Title = "倍率モード適用完了",
-   Content = "回収信号の多重送信が可能になりました。",
-   Duration = 3,
-   Image = 4483362458,
-})
